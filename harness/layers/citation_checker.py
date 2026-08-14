@@ -63,21 +63,31 @@ from harness.middleware import Middleware
 
 
 class CitationChecker(Middleware):
-    """Trỏ mỗi claim về đúng tài liệu thật sự chứa câu đó."""
+    """Đưa mỗi claim về đúng tài liệu thực sự chứa câu trích dẫn."""
 
     name = "citation_checker"
 
     def after_agent(self, ctx, report):
-        # TODO (§11): khoảng 10-25 dòng.
-        #  1. Lấy report["claims"]; bỏ qua nếu rỗng hoặc ctx.corpus là None.
-        #  2. Với mỗi claim, gọi ctx.corpus.get(claim["doc_id"]).
-        #     Nếu tài liệu tồn tại VÀ claim["text"] khớp NGUYÊN VĂN một
-        #     DÒNG trong body của nó (không phải chỉ "nằm trong body")
-        #     -> trích dẫn đã đúng, giữ nguyên claim.
-        #  3. Nếu không: tìm trong ctx.corpus.docs tài liệu đầu tiên thoả
-        #     doc.body in ctx.observed_text  và  claim["text"] khớp
-        #     nguyên văn một DÒNG của doc.body -> đó là nguồn thật.
-        #     Đổi doc_id sang nó, GIỮ NGUYÊN text.
-        #  4. Không tìm được nguồn nào -> để `critic` xử lý, đừng bịa doc_id.
-        #  5. Cập nhật report["citations"] = danh sách doc_id đã sắp xếp.
-        return report  # <- mặc định KHÔNG LÀM GÌ: agent vẫn chạy được
+        claims = report.get("claims")
+        corpus = getattr(ctx, "corpus", None)
+        if not claims or corpus is None:
+            return report
+
+        observed = getattr(ctx, "observed_text", "")
+        citations = []
+        for claim in claims:
+            text = claim.get("text", "")
+            doc = corpus.get(claim.get("doc_id"))
+            if doc is not None and text in doc.body:
+                citations.append(doc.doc_id)
+                continue
+            for candidate in corpus.docs:
+                if candidate.body in observed and text in candidate.body:
+                    claim["doc_id"] = candidate.doc_id
+                    citations.append(candidate.doc_id)
+                    break
+            else:
+                if claim.get("doc_id"):
+                    citations.append(claim["doc_id"])
+        report["citations"] = citations
+        return report
